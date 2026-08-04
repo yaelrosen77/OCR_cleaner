@@ -2,7 +2,10 @@ from datetime import datetime
 import re
 
 
-def process_records(raw_records: list[dict]) -> tuple[list[dict], list[dict]]:
+def process_records(
+    raw_records: list[dict]
+) -> tuple[list[dict], list[dict]]:
+
     clean_records = []
     flagged_records = []
     seen_records = {}
@@ -19,17 +22,15 @@ def process_records(raw_records: list[dict]) -> tuple[list[dict], list[dict]]:
         )
 
         if duplicate_reason:
-            # Keep the duplicate record unchanged because
-            # vendor, date, and amount are not processed
             processed_record = raw_record.copy()
             processed_record["reason"] = duplicate_reason
 
             flagged_records.append(processed_record)
 
-            # Skip the remaining checks and move to the next record
+            # Skip the remaining checks
             continue
 
-        # Get vendor and date
+        # Get the fields
         vendor = raw_record.get("vendor")
         date = raw_record.get("date")
         amount = raw_record.get("amount")
@@ -50,19 +51,22 @@ def process_records(raw_records: list[dict]) -> tuple[list[dict], list[dict]]:
                 reason += ", "
             reason += date_reason
 
-        processed_record = {
-            "vendor": vendor,
-            "date": date,
-            "amount": amount
-        }
-
+        # Check amount
         amount, amount_reason = check_amount(amount)
+
         if amount_reason:
             if reason:
                 reason += ", "
             reason += amount_reason
 
-        
+        # Create the record after all fields were processed
+        processed_record = {
+            "invoice_id": invoice_id,
+            "vendor": vendor,
+            "date": date,
+            "amount": amount
+        }
+
         if reason:
             processed_record["reason"] = reason
             flagged_records.append(processed_record)
@@ -85,6 +89,11 @@ def check_vendor(vendor: str | None) -> tuple[str, str]:
 
 
 def check_date(date_value: str | None) -> tuple[str, str]:
+    """
+    Checks whether the date exists and matches an accepted format.
+    Valid dates are converted to ISO format: YYYY-MM-DD.
+    """
+
     if not date_value:
         return "", "Missing date field"
 
@@ -96,7 +105,8 @@ def check_date(date_value: str | None) -> tuple[str, str]:
     accepted_formats = [
         "%b %d, %Y",  # Jan 4, 2024
         "%m/%d/%Y",   # 01/06/2024
-        "%Y-%m-%d"    # 2019-01-10
+        "%Y-%m-%d",   # 2019-01-10
+        "%Y/%m/%d"    # 2024/01/09
     ]
 
     for date_format in accepted_formats:
@@ -104,7 +114,6 @@ def check_date(date_value: str | None) -> tuple[str, str]:
             parsed_date = datetime.strptime(date_value, date_format)
             iso_date = parsed_date.strftime("%Y-%m-%d")
 
-            # Check whether the date is before 2023
             if parsed_date.year < 2023:
                 return iso_date, "Date is before 2023"
 
@@ -263,97 +272,19 @@ def check_duplicate(
 
 
 raw_records = [
-    {
-        "invoice_id": "INV-1001",
-        "amount": "$1,200.00",
-        "date": "2024-01-40",
-        "vendor": "Acme Corp"
-    },
-    {
-        "invoice_id": "INV-1004",
-        "amount": "2,340",
-        "date": "Jan 8, 2024",
-        "vendor": ""
-    },
-    {
-        "invoice_id": "INV-1005",
-        "amount": "400",
-        "date": "01/06/2024",
-        "vendor": "Example Ltd"
-    },
-    {
-        "invoice_id": "INV-1006",
-        "amount": "500",
-        "date": "Oct 6, 2022",
-        "vendor": ""
-    }
+{"invoice_id": "INV-1001", "amount": "$1,200.00", "date": "2024-01-05", "vendor": "Acme Corp"},
+{"invoice_id": "INV-1002", "amount": "95O.5", "date": "01/06/2024", "vendor": "Beta LLC"},
+{"invoice_id": "INV-1003", "amount": "N/A", "date": "2024-01-07", "vendor": "Acme Corp"},
+{"invoice_id": "INV-1004", "amount": "2,340", "date": "Jan 8, 2024", "vendor": ""},
+{"invoice_id": "INV-1001", "amount": "$1,200.00", "date": "2024-01-05", "vendor": "Acme Corp"},
+{"invoice_id": "INV-1005", "amount": "-450.00", "date": "2024-13-40", "vendor": "Gamma Inc"},
+{"invoice_id": "INV-1006", "amount": " ", "date": "2024/01/09", "vendor": "Delta Co"},
+{"invoice_id": "INV-1007", "amount": "3200.00", "date": "2019-01-10", "vendor": "Acme Corp"},
 ]
 
+
 clean_res, flagged_rec = process_records(raw_records)
+print(clean_res)
+print("/n")
+print(flagged_rec)
 
-# test_amounts = [
-#     "$1,200.00",
-#     "95O.5",
-#     "9so.5",
-#     "N/A",
-#     "-450",
-#     "9x0.5"
-# ]
-
-# for test_amount in test_amounts:
-#     print(test_amount, "->", check_amount(test_amount))
-
-
-# seen_records = {}
-
-# test_records = [
-#     # First appearance — not duplicated
-#     {
-#         "invoice_id": "INV-1001",
-#         "vendor": "Acme Corp",
-#         "date": "2024-01-05",
-#         "amount": "$1,200.00"
-#     },
-
-#     # Same ID and same values — exact duplicate
-#     {
-#         "invoice_id": "INV-1001",
-#         "vendor": "Acme Corp",
-#         "date": "2024-01-05",
-#         "amount": "$1,200.00"
-#     },
-
-#     # Same ID but different amount
-#     {
-#         "invoice_id": "INV-1001",
-#         "vendor": "Acme Corp",
-#         "date": "2024-01-05",
-#         "amount": "$1,500.00"
-#     },
-
-#     # New ID — not duplicated
-#     {
-#         "invoice_id": "INV-1002",
-#         "vendor": "Example Ltd",
-#         "date": "2024-02-10",
-#         "amount": "500"
-#     },
-
-#     # Same ID as INV-1002 but different vendor
-#     {
-#         "invoice_id": "INV-1002",
-#         "vendor": "Different Vendor",
-#         "date": "2024-02-10",
-#         "amount": "500"
-#     }
-# ]
-
-
-# for record in test_records:
-#     duplicate_reason = check_duplicate(
-#         record.get("invoice_id"),
-#         record,
-#         seen_records
-#     )
-
-#     print(record["invoice_id"], "->", duplicate_reason)
